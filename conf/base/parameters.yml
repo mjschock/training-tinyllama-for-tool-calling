@@ -1,0 +1,56 @@
+model_config:
+  bnb_4bit_quant_type: nf4
+  load_in_4bit: True
+  lora_alpha: 16
+  lora_r: 8
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+    - lm_head
+  model_name_or_path: mjschock/TinyLlama-1.1B-Chat-v1.0
+  torch_dtype: bfloat16
+  trust_remote_code: False
+  use_bnb_nested_quant: True
+  use_peft: True
+model_options:
+  test_size: 0.2
+  random_state: 42
+sft_config:
+  auto_find_batch_size: True
+  batch_eval_metrics: True
+  eval_accumulation_steps: 16
+  eval_on_start: True
+  eval_steps: 1.0
+  eval_strategy: epoch
+  gradient_accumulation_steps: 16
+  gradient_checkpointing: True
+  learning_rate: 5e-05
+  load_best_model_at_end: True
+  logging_steps: 1.0
+  logging_strategy: steps
+  max_seq_length: 4096
+  num_of_sequences: 1
+  num_train_epochs: 1.0
+  # output_dir: TinyLlama-1.1B-Chat-v1.0-sft-chat_threads
+  output_dir: data/06_models/TinyLlama-1.1B-Chat-v1.0-sft-chat_threads
+  packing: False
+  per_device_eval_batch_size: 1
+  per_device_train_batch_size: 1
+  push_to_hub: True
+  report_to:
+    - mlflow
+  save_steps: 1.0
+  save_strategy: epoch
+  save_total_limit: 1
+  seed: 42
+sft_script_arguments:
+  dataset_name: mjschock/chat_threads
+  dataset_train_split: train
+  dataset_test_split: validation
+  # config: None
+  gradient_checkpointing_use_reentrant: False

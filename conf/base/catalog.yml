@@ -1,0 +1,181 @@
+# Here you can define all your data sets by using simple YAML syntax.
+#
+# Documentation for this file format can be found in "The Data Catalog"
+# Link: https://docs.kedro.org/en/stable/data/data_catalog.html
+#
+# We support interacting with a variety of data stores including local file systems, cloud, network and HDFS
+#
+# An example data set definition can look as follows:
+#
+#bikes:
+#  type: pandas.CSVDataset
+#  filepath: "data/01_raw/bikes.csv"
+#
+#weather:
+#  type: spark.SparkDataset
+#  filepath: s3a://your_bucket/data/01_raw/weather*
+#  file_format: csv
+#  credentials: dev_s3
+#  load_args:
+#    header: True
+#    inferSchema: True
+#  save_args:
+#    sep: '|'
+#    header: True
+#
+#scooters:
+#  type: pandas.SQLTableDataset
+#  credentials: scooters_credentials
+#  table_name: scooters
+#  load_args:
+#    index_col: ['name']
+#    columns: ['name', 'gear']
+#  save_args:
+#    if_exists: 'replace'
+#    # if_exists: 'fail'
+#    # if_exists: 'append'
+#
+# The Data Catalog supports being able to reference the same file using two different Dataset implementations
+# (transcoding), templating and a way to reuse arguments that are frequently repeated. See more here:
+# https://docs.kedro.org/en/stable/data/data_catalog.html
+
+chat_threads_df:
+  filepath: data/01_raw/chat_threads.jsonl
+  load_args:
+    lines: True
+  save_args:
+    lines: True
+    orient: records
+  type: pandas.JSONDataset
+
+drone_training_df:
+  filepath: https://raw.githubusercontent.com/openai/openai-cookbook/main/examples/data/drone_training.jsonl
+  load_args:
+    lines: True
+  type: pandas.JSONDataset
+
+gorilla_berkeley_function_call_leaderboard_v3_exec_multiple_df:
+  filepath: https://raw.githubusercontent.com/ShishirPatil/gorilla/main/berkeley-function-call-leaderboard/data/BFCL_v3_exec_multiple.json
+  load_args:
+    lines: True
+  type: pandas.JSONDataset
+
+gorilla_berkeley_function_call_leaderboard_v3_exec_parallel_df:
+  filepath: https://raw.githubusercontent.com/ShishirPatil/gorilla/main/berkeley-function-call-leaderboard/data/BFCL_v3_exec_parallel.json
+  load_args:
+    lines: True
+  type: pandas.JSONDataset
+
+gorilla_berkeley_function_call_leaderboard_v3_exec_parallel_multiple_df:
+  filepath: https://raw.githubusercontent.com/ShishirPatil/gorilla/main/berkeley-function-call-leaderboard/data/BFCL_v3_exec_parallel_multiple.json
+  load_args:
+    lines: True
+  type: pandas.JSONDataset
+
+gorilla_berkeley_function_call_leaderboard_v3_exec_simple_df:
+  filepath: https://raw.githubusercontent.com/ShishirPatil/gorilla/main/berkeley-function-call-leaderboard/data/BFCL_v3_exec_simple.json
+  load_args:
+    lines: True
+  type: pandas.JSONDataset
+
+model_input_table_df:
+  filepath: data/03_primary/model_input_table.jsonl
+  load_args:
+    lines: True
+  save_args:
+    lines: True
+    orient: records
+  type: pandas.JSONDataset
+
+chat_threads_ds:
+  dataset_name: mjschock/chat_threads
+  type: huggingface.HFDataset
+
+# https://kedro-mlflow.readthedocs.io/en/0.12.2/source/04_experimentation_tracking/04_version_models.html#how-can-i-save-model-locally-and-log-it-in-mlflow-in-one-step
+# pretrained_model:
+#   # artifact_path: reporting  # relative path where the remote artifact must be stored. if None, saved in root folder.
+#   artifact_path: TinyLlama-1.1B-Chat-v1.0
+#   flavor: mlflow.transformers
+#   load_args:
+#     # device: cpu
+#     # device_map: auto
+#     dtype: None
+#     filepath: data/06_models/TinyLlama-1.1B-Chat-v1.0
+#     load_in_4bit: True
+#     max_seq_length: 4096
+#     # torch_dtype: torch.bfloat16
+#   pyfunc_workflow: python_model # or loader_module
+#   save_args:
+#     # filepath: data/06_models/TinyLlama-1.1B-Chat-v1.0
+#     registered_model_name: TinyLlama-1.1B-Chat-v1.0
+#     # save_pretrained: False
+#     # task: text-generation
+#   type: kedro_mlflow.io.models.MlflowModelTrackingDataset
+
+# pretrained_model:
+#   dataset:
+#     filepath: data/06_models/TinyLlama-1.1B-Chat-v1.0
+#     flavor: mlflow.transformers
+#     type: kedro_mlflow.io.models.MlflowModelLocalFileSystemDataset
+#     save_args:
+#       # registered_model_name: TinyLlama-1.1B-Chat-v1.0
+#       task: text-generation
+#   type: kedro_mlflow.io.artifacts.MlflowArtifactDataset
+
+pretrained_model_evaluation_df:
+  filepath: data/07_model_output/pretrained_model_evaluation.jsonl # pretrained_model_test_ds_predictions?
+  save_args:
+    lines: True
+    orient: records
+  type: pandas.JSONDataset
+
+# tuned_model:
+#   flavor: mlflow.transformers
+#   load_args:
+#     device: cpu
+#   save_args:
+#     registered_model_name: TinyLlama-1.1B-Chat-v1.0-sft-chat_threads
+#     task: text-generation
+#   type: kedro_mlflow.io.models.MlflowModelTrackingDataset
+
+tuned_model_evaluation_df:
+  filepath: data/07_model_output/tuned_model_evaluation.jsonl
+  save_args:
+    lines: True
+    orient: records
+  type: pandas.JSONDataset
+
+# model_input_table:
+#   type: huggingface.HFDataset
+#   dataset_name: mjschock/chat_threads
+
+# companies:
+#   type: pandas.CSVDataset
+#   filepath: data/01_raw/companies.csv
+
+# reviews:
+#   type: pandas.CSVDataset
+#   filepath: data/01_raw/reviews.csv
+
+# shuttles:
+#   type: pandas.ExcelDataset
+#   filepath: data/01_raw/shuttles.xlsx
+#   load_args:
+#     engine: openpyxl
+
+# preprocessed_companies:
+#   type: pandas.ParquetDataset
+#   filepath: data/02_intermediate/preprocessed_companies.pq
+
+# preprocessed_shuttles:
+#   type: pandas.ParquetDataset
+#   filepath: data/02_intermediate/preprocessed_shuttles.pq
+
+# model_input_table:
+#   type: pandas.ParquetDataset
+#   filepath: data/03_primary/model_input_table.pq
+
+# regressor:
+#   type: pickle.PickleDataset
+#   filepath: data/06_models/regressor.pickle
+#   versioned: true

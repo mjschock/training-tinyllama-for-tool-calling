@@ -1,7 +1,5 @@
 import json
-import logging
 import os
-import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
@@ -11,20 +9,13 @@ import mlflow
 import numpy as np
 import pandas as pd
 import torch
-import transformers
 from datasets import Dataset, DatasetDict, load_dataset
-from kedro.config import MissingConfigException, OmegaConfigLoader
+from kedro.config import OmegaConfigLoader
 from kedro.framework.project import settings
-from peft import PeftConfig, PeftModel
 from pynvml import *
-from pynvml_utils import nvidia_smi
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
-from sklearn.model_selection import train_test_split
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    BitsAndBytesConfig,
     DataCollatorForLanguageModeling,
     PreTrainedModel,
     PreTrainedTokenizer,
@@ -36,12 +27,10 @@ from trl import (
     SFTConfig,
     SFTScriptArguments,
     SFTTrainer,
-    TrlParser,
     get_kbit_device_map,
     get_peft_config,
     get_quantization_config,
 )
-from unsloth import FastLanguageModel
 
 # PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -51,9 +40,7 @@ def _get_hf_token() -> str:
     project_root = (
         settings.PROJECT_ROOT if settings.PROJECT_ROOT is not None else Path.cwd()
     )
-    # print("project_root: ", project_root)
 
-    # conf_path = str(Path(<project_root>) / settings.CONF_SOURCE)
     conf_path = str(project_root / settings.CONF_SOURCE)
     conf_loader = OmegaConfigLoader(conf_source=conf_path)
     credentials = conf_loader["credentials"]
@@ -62,41 +49,12 @@ def _get_hf_token() -> str:
     return hf_token
 
 
-# def split_data(data: pd.DataFrame, parameters: Dict) -> Tuple:
-#     """Splits data into features and targets training and test sets.
-
-#     Args:
-#         data: Data containing features and target.
-#         parameters: Parameters defined in parameters/data_science.yml.
-#     Returns:
-#         Split data.
-#     """
-#     X = data[parameters["features"]]
-#     y = data["price"]
-#     X_train, X_test, y_train, y_test = train_test_split(
-#         X, y, test_size=parameters["test_size"], random_state=parameters["random_state"]
-#     )
-#     return X_train, X_test, y_train, y_test
-
-
-# def split_data(data: pd.DataFrame, parameters: dict) -> DatasetDict:
-# def split_data(data: pd.DataFrame, parameters: dict) -> None:
 def split_data(data: pd.DataFrame, parameters: Dict) -> Tuple:
-    # def split_data(data: pd.DataFrame, parameters: Dict, credentials: Dict) -> Tuple:
-    # X = data[parameters["features"]]
-    # y = data["price"]
-    # X_train, X_test, y_train, y_test = train_test_split(
-    #     X, y, test_size=parameters["test_size"], random_state=parameters["random_state"]
-    # )
-    # return X_train, X_test, y_train, y_test
-
     dataset = Dataset.from_pandas(data)
 
-    # train_test_ds = dataset.train_test_split(seed=SEED, test_size=0.2)
     train_test_ds = dataset.train_test_split(
         seed=parameters["random_state"], test_size=parameters["test_size"]
     )
-    # test_validation_ds = train_test_ds["test"].train_test_split(seed=SEED, test_size=0.5)
     test_validation_ds = train_test_ds["test"].train_test_split(
         seed=parameters["random_state"], test_size=0.5
     )
@@ -115,8 +73,6 @@ def split_data(data: pd.DataFrame, parameters: Dict) -> Tuple:
 
     # TODO: add references to where the examples in the dataset came from to the Hub README
     # chat_threads_ds.push_to_hub(f"mjschock/chat_threads", token=HF_TOKEN)
-
-    print("parameters: ", parameters)
 
     hf_token = _get_hf_token()
     chat_threads_ds.push_to_hub(f"mjschock/chat_threads", token=hf_token)
@@ -337,58 +293,22 @@ def prepare_base_model(
     validation_ds: Dataset,
     test_ds: Dataset,
 ) -> str:
-    # ) -> dict:
-    # ) -> None:
     with mlflow.start_run(
         log_system_metrics=True,
         nested=True,
     ):
-        # MAX_LENGTH = 4096
-
         tokenizer = AutoTokenizer.from_pretrained(
             "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-            # add_eos_token=True,
-            # model_max_length=MAX_LENGTH,
-            # padding_side="left", # https://www.mlflow.org/docs/2.12.1/llms/transformers/tutorials/fine-tuning/transformers-peft.html#Padding-the-Training-Dataset
             use_fast=True,
         )
 
-        # # quantization_config = BitsAndBytesConfig(
-        # #     # Load the model with 4-bit quantization
-        # #     load_in_4bit=True,
-        # #     # Use double quantization
-        # #     bnb_4bit_use_double_quant=True,
-        # #     # Use 4-bit Normal Float for storing the base model weights in GPU memory
-        # #     bnb_4bit_quant_type="nf4",
-        # #     # De-quantize the weights to 16-bit (Brain) float before the forward/backward pass
-        # #     bnb_4bit_compute_dtype=torch.bfloat16,
-        # # )
-
         model = AutoModelForCausalLM.from_pretrained(
             "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-            # quantization_config=quantization_config,
         )
-
-        # model, tokenizer = FastLanguageModel.from_pretrained(
-        #     # model_name = "lora_model", # YOUR MODEL YOU USED FOR TRAINING
-        #     model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0", # unsloth/tinyllama-bnb-4bit",
-        #     # max_seq_length = max_seq_length,
-        #     max_seq_length=MAX_LENGTH,
-        #     # dtype = dtype,
-        #     dtype=None, # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
-        #     # load_in_4bit = load_in_4bit,
-        #     load_in_4bit=True # Use 4bit quantization to reduce memory usage. Can be False.
-        # )
-
-        print(f"=== Before setup_chat_format ===")
 
         print(f"tokenizer.bos_token: {tokenizer.bos_token}")
         print(f"tokenizer.eos_token: {tokenizer.eos_token}")
         print(f"tokenizer.pad_token: {tokenizer.pad_token}")
-
-        # print(f"tokenizer.chat_template: {tokenizer.chat_template}")
-
-        # FastLanguageModel.for_inference(model) # Enable native 2x faster inference
 
         model, tokenizer = _setup_chat_format(model, tokenizer)
 
@@ -398,90 +318,6 @@ def prepare_base_model(
         print(f"tokenizer.eos_token: {tokenizer.eos_token}")
         print(f"tokenizer.pad_token: {tokenizer.pad_token}")
 
-        # print(f"tokenizer.chat_template: {tokenizer.chat_template}")
-
-        # print(f"vocab_size: {tokenizer.vocab_size}")
-
-        # dataset = load_dataset("mjschock/chat_threads", revision=DATASET_VERSION)
-
-        # test_dataset = dataset["test"]
-        # example = test_dataset[10]
-
-        # text = tokenizer.apply_chat_template(
-        #     add_generation_prompt=True,
-        #     documents=json.loads(example["documents"]),
-        #     conversation=json.loads(example["messages"]),
-        #     tools=json.loads(example["tools"]),
-        #     tokenize=False,
-        # )
-
-        # print("prompt:")
-        # print(text)
-
-        # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        # generation_pipeline = transformers.pipeline(
-        #     # task="text-generation",
-        #     # "text2text-generation",
-        #     "text-generation",
-        #     # device=device,
-        #     # device_map="auto",
-        #     # device_map=get_kbit_device_map(),
-        #     model=model,
-        #     tokenizer=tokenizer,
-        # )
-
-        # Define a simple input example that will be recorded with the model in MLflow, giving
-        # users of the model an indication of the expected input format.
-        # input_example = ["prompt 1", "prompt 2", "prompt 3"]
-
-        # Define the parameters (and their defaults) for optional overrides at inference time.
-        # parameters = {"max_length": 512, "do_sample": True, "temperature": 0.4}
-        # parameters = {"max_length": MAX_LENGTH, "do_sample": True, "temperature": 0.0}
-
-        # signature = mlflow.models.infer_signature(
-        #     input_example,
-        #     mlflow.transformers.generate_signature_output(
-        #         generation_pipeline, input_example
-        #     ),
-        #     parameters,
-        # )
-
-        # print("signature:")
-        # print(signature)
-
-        # mlflow.set_experiment("Transformers Introduction")
-
-        # with mlflow.start_run(nested=True):
-        #     model_info = mlflow.transformers.log_model(
-        #         transformers_model=generation_pipeline,
-        #         artifact_path="text_generator",
-        #         input_example=input_example,
-        #         signature=signature,
-        #         # Uncomment the following line to save the model in 'reference-only' mode:
-        #         save_pretrained=False,
-        #     )
-
-        # print("model_info:")
-        # print(model_info)
-
-        # Get the ID of the MLflow Run that was automatically created above
-        # last_run_id = mlflow.last_active_run().info.run_id
-
-        # with mlflow.start_run(
-        #     nested=True,
-        #     run_id=last_run_id,
-        # ):
-        #     # mlflow.log_params(peft_config.to_dict())
-        #     model_info = mlflow.transformers.log_model(
-        #         # transformers_model={"model": trainer.model, "tokenizer": tokenizer_no_pad},
-        #         transformers_model={"model": model, "tokenizer": tokenizer},
-        #         # prompt_template=prompt_template,
-        #         # signature=signature,
-        #         artifact_path="model",  # This is a relative path to save model files within MLflow run
-        #         save_pretrained=False, # Save the model in 'reference-only' mode
-        #     )
-
         hf_token = _get_hf_token()
 
         repo_id = "mjschock/TinyLlama-1.1B-Chat-v1.0"
@@ -489,109 +325,19 @@ def prepare_base_model(
         model.save_pretrained("data/06_models/TinyLlama-1.1B-Chat-v1.0")
         tokenizer.save_pretrained("data/06_models/TinyLlama-1.1B-Chat-v1.0")
 
-        # # model.push_to_hub(repo_id="mjschock/TinyLlama-1.1B-Chat-v1.0", use_auth_token=True)
         model.push_to_hub(
-            # repo_id="mjschock/TinyLlama-1.1B-Chat-v1.0",
             repo_id=repo_id,
-            # use_auth_token=True,
             token=hf_token,
-            # hf_token=hf_token,
         )
         tokenizer.push_to_hub(
-            # repo_id="mjschock/TinyLlama-1.1B-Chat-v1.0", use_auth_token=True
-            # repo_id="mjschock/TinyLlama-1.1B-Chat-v1.0",
             repo_id=repo_id,
-            # use_auth_token=True,
             token=hf_token,
-            # hf_token=hf_token,
         )
-
-        # # model.save_pretrained("mjschock/TinyLlama-1.1B-Chat-v1.0")
-        # # tokenizer.save_pretrained("mjschock/TinyLlama-1.1B-Chat-v1.0")
-
-        # # return "mjschock/TinyLlama-1.1B-Chat-v1.0"
-        # return repo_id
-
-        # return model_info.artifact_path
-        # return {
-        #     "model": model,
-        #     "tokenizer": tokenizer,
-        # }
-
-        # transformers_model = {
-        #     "model": model,
-        #     "tokenizer": tokenizer,
-        # }
-
-        # # https://mlflow.org/docs/latest/python_api/mlflow.transformers.html#mlflow.transformers.log_model
-        # model_info = mlflow.transformers.log_model(
-        #     # transformers_model={"model": trainer.model, "tokenizer": tokenizer_no_pad},
-        #     # transformers_model={"model": model, "tokenizer": tokenizer},
-        #     transformers_model=transformers_model,
-        #     # prompt_template=prompt_template,
-        #     # signature=signature,
-        #     # artifact_path="model",  # This is a relative path to save model files within MLflow run
-        #     artifact_path="pretrained_model",
-        #     # save_pretrained=False, # Save the model in 'reference-only' mode
-        # )
-
-        # return repo_id
-
-        # return f"{model_info.artifact_path}/model"
-        # return model_info.model_uri
-
-        # pipe = pipeline("text-generation", model="TinyLlama/TinyLlama-1.1B-Chat-v1.0", torch_dtype=torch.bfloat16, device_map="auto")
-
-        # # We use the tokenizer's chat template to format each message - see https://huggingface.co/docs/transformers/main/en/chat_templating
-        # messages = [
-        #     {
-        #         "role": "system",
-        #         "content": "You are a friendly chatbot who always responds in the style of a pirate",
-        #     },
-        #     {"role": "user", "content": "How many helicopters can a human eat in one sitting?"},
-        # ]
-        # prompt = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        # outputs = pipe(prompt, max_new_tokens=256, do_sample=True, temperature=0.7, top_k=50, top_p=0.95)
-        # print(outputs[0]["generated_text"])
-
-        # messages = [
-        #     {"role": "user", "content": "Describe a tall tower in the capital of France."},
-        # ]
-        # inputs = tokenizer.apply_chat_template(
-        #     messages,
-        #     tokenize = True,
-        #     add_generation_prompt = True, # Must add for generation
-        #     return_tensors = "pt",
-        # ).to("cuda")
-
-        # from transformers import TextStreamer
-        # text_streamer = TextStreamer(tokenizer, skip_prompt = True)
-        # _ = model.generate(input_ids = inputs, streamer = text_streamer, max_new_tokens = 128,
-        #                 use_cache = True, temperature = 1.5, min_p = 0.1)
-
-        # return {
-        #     "model": model,
-        #     "tokenizer": tokenizer,
-        # }
-
-        # return components
-
-        # sample = test_ds[1]
-
-        # signature = infer_signature(
-        #     model_input=sample["prompt"],
-        #     model_output=sample["answer"],
-        #     # Parameters are saved with default values if specified
-        #     params={"max_new_tokens": 256, "repetition_penalty": 1.15, "return_full_text": False},
-        # )
 
         prompts = []
         responses = []
 
         for example in test_ds.select(range(1)):
-            # example = test_ds[17]
-            print("example: ", example)
-
             text = tokenizer.apply_chat_template(
                 add_generation_prompt=True,
                 documents=json.loads(example["documents"]),
@@ -600,14 +346,10 @@ def prepare_base_model(
                 tokenize=False,
             )
 
-            print("prompt:")
-            print(text)
-
             inputs = tokenizer(text, return_tensors="pt")
 
             streamer = TextStreamer(tokenizer, skip_prompt=True)
 
-            print("response:")
             token_ids = model.generate(**inputs, streamer=streamer, max_new_tokens=512)
 
             response = tokenizer.decode(
@@ -622,25 +364,13 @@ def prepare_base_model(
         prompt = prompts[0]
         response = responses[0]
 
-        print("prompt:")
-        print(prompt)
-
-        print("response:")
-        print(response)
-
         signature = mlflow.models.infer_signature(
             model_input=prompt,
             model_output=response,
-            # Parameters are saved with default values if specified
-            # params={"max_new_tokens": 512, "repetition_penalty": 1.15, "return_full_text": False},
         )
-
-        print("signature:")
-        print(signature)
 
         model_info = mlflow.transformers.log_model(
             artifact_path="pretrained_model",
-            # prompt_template=
             registered_model_name="TinyLlama-1.1B-Chat-v1.0",
             signature=signature,
             task="text-generation",
@@ -648,110 +378,9 @@ def prepare_base_model(
             transformers_model="data/06_models/TinyLlama-1.1B-Chat-v1.0",
         )
 
-        # return model_info.artifact_path
         return model_info.model_uri
 
 
-# # def evaluate_base_model(pretrained_model: str, test_ds: Dataset) -> pd.DataFrame:
-# def evaluate_base_model(pretrained_model: str, test_ds: Dataset) -> pd.DataFrame:
-#     with mlflow.start_run(
-#         log_system_metrics=True,
-#         nested=True,
-#     ):
-
-#         print("type(pretrained_model):")
-#         print(pretrained_model)
-
-#         # tool_model = mlflow.pyfunc.load_model(model_info.model_uri)
-#         model = mlflow.transformers.load_model(
-#             device="cpu",
-#             dst_path="data/06_models/TinyLlama-1.1B-Chat-v1.0",
-#             model_uri=pretrained_model,
-#             return_type="components",
-#         )
-
-#         print("model:")
-#         print(model)
-
-#         # model, tokenizer = model["model"], model["tokenizer"]
-
-#         # model = AutoModelForCausalLM.from_pretrained(pretrained_model)
-#         # tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
-#         # model, tokenizer = FastLanguageModel.from_pretrained(
-#         #     # model_name = "lora_model", # YOUR MODEL YOU USED FOR TRAINING
-#         #     model_name=pretrained_model,
-#         #     # max_seq_length = max_seq_length,
-#         #     # dtype = dtype,
-#         #     # load_in_4bit = load_in_4bit,
-#         # )
-#         # FastLanguageModel.for_inference(model) # Enable native 2x faster inference
-
-#         prompts = []
-#         responses = []
-
-#         # # for example in test_ds:
-#         # # for example in test_ds[0:1]:
-#         for example in test_ds.select(range(1)):
-#             # example = test_ds[17]
-#             print("example: ", example)
-
-#             # text = pretrained_model.tokenizer.apply_chat_template(
-#             text = model["tokenizer"].apply_chat_template(
-#                 add_generation_prompt=True,
-#                 documents=json.loads(example["documents"]),
-#                 conversation=json.loads(example["messages"])[0:-1],
-#                 tools=json.loads(example["tools"]),
-#                 tokenize=False,
-#             )
-
-#             print("prompt:")
-#             print(text)
-
-#             # inputs = pretrained_model.tokenizer(text, return_tensors="pt")
-#             inputs = model["tokenizer"](text, return_tensors="pt")
-
-#             # streamer = TextStreamer(pretrained_model.tokenizer, skip_prompt=True)
-#             streamer = TextStreamer(model["tokenizer"], skip_prompt=True)
-
-#             print("response:")
-#             # token_ids = pretrained_model.model.generate(
-#             token_ids = model["model"].generate(
-#                 **inputs, streamer=streamer, max_new_tokens=512
-#             )
-
-#             # response = pretrained_model.tokenizer.decode(
-#             response = model["tokenizer"].decode(
-#                 token_ids[0],
-#                 clean_up_tokenization_spaces=True,
-#                 skip_special_tokens=False,
-#             )
-
-#             prompts.append(text)
-#             responses.append(response)
-
-#         # # with open("pretrain_inference_check_response.txt", "w") as f:
-#         # #     f.write(response)
-
-#         # # df = pd.DataFrame(
-#         # #     {
-#         # #         "prompt": [text],
-#         # #         "response": [response],
-#         # #     }
-#         # # )
-
-#         df = pd.DataFrame(
-#             {
-#                 "prompt": prompts,
-#                 "response": responses,
-#             }
-#         )
-
-#         return df
-
-
-# def train_model(X_train: pd.DataFrame, y_train: pd.Series) -> LinearRegression:
-# def train_model(chat_threads_ds: DatasetDict) -> LinearRegression:
-# def train_model(chat_threads_train_ds: Dataset, chat_threads_validation_ds: Dataset, parameters: Dict) -> LinearRegression:
 def train_model(
     chat_threads_train_ds: Dataset,
     chat_threads_validation_ds: Dataset,
@@ -760,44 +389,21 @@ def train_model(
     sft_config: Dict,
     sft_script_arguments: Dict,
     pretrained_model_uri: str,
-    # ) -> LinearRegression:
 ) -> str:
-    """Trains the linear regression model.
+    """Trains the model.
 
     Args:
-        X_train: Training data of independent features.
-        y_train: Training data for price.
+        chat_threads_train_ds: Training data.
+        chat_threads_validation_ds: Validation data.
+        chat_threads_test_ds: Test data.
+        model_config: Model configuration.
+        sft_config: SFT configuration.
+        sft_script_arguments: SFT script arguments.
+        pretrained_model_uri: URI of the pretrained model.
 
     Returns:
-        Trained model.
+        URI of the trained model.
     """
-    # print("chat_threads_ds: ", chat_threads_ds)
-    # X_train = chat_threads_ds["train"]
-    # y_train = chat_threads_ds["validation"]
-    # regressor = LinearRegression()
-    # regressor.fit(X_train, y_train)
-    # return regressor
-
-    # from training_tinyllama_for_tool_calling.pipelines.data_science.tune import main
-
-    # print('parameters: ', parameters)
-
-    print("model_config:")
-    print(model_config)
-
-    print("sft_config:")
-    print(sft_config)
-
-    print("sft_script_arguments:")
-    print(sft_script_arguments)
-
-    # experiment = mlflow.set_experiment("Training TinyLlama for Tool-calling")
-    # # Get Experiment Details
-    # print(f"Experiment_id: {experiment.experiment_id}")
-    # print(f"Artifact Location: {experiment.artifact_location}")
-    # print(f"Tags: {experiment.tags}")
-    # print(f"Lifecycle_stage: {experiment.lifecycle_stage}")
-
     model_config = ModelConfig(**model_config)
     sft_config = SFTConfig(**sft_config, hub_token=_get_hf_token())
     sft_script_arguments = SFTScriptArguments(**sft_script_arguments)
@@ -811,18 +417,17 @@ def train_model(
         trust_remote_code=model_config.trust_remote_code,
         attn_implementation=model_config.attn_implementation,
         torch_dtype=model_config.torch_dtype,
-        # use_cache=False if training_args.gradient_checkpointing else True,
         use_cache=False if sft_config.gradient_checkpointing else True,
         device_map=get_kbit_device_map() if quantization_config is not None else None,
         quantization_config=quantization_config,
     )
-    # training_args.model_init_kwargs = model_kwargs
-    # sft_config.model_init_kwargs = model_kwargs
+
     tokenizer = AutoTokenizer.from_pretrained(
         model_config.model_name_or_path,
         trust_remote_code=model_config.trust_remote_code,
         use_fast=True,
     )
+
     model = AutoModelForCausalLM.from_pretrained(
         model_config.model_name_or_path, **model_kwargs
     )
@@ -830,18 +435,6 @@ def train_model(
     ################
     # Dataset
     ################
-    # dataset = load_dataset(script_args.dataset_name, revision=DATASET_VERSION)
-    # dataset = load_dataset(sft_script_arguments.dataset_name, revision=DATASET_VERSION)
-    dataset = load_dataset(sft_script_arguments.dataset_name)
-
-    # eval_dataset = dataset[script_args.dataset_test_split]
-    # eval_dataset = dataset[sft_script_arguments.dataset_test_split]
-    # test_dataset = dataset[script_args.dataset_test_split]
-    # test_dataset = dataset[sft_script_arguments.dataset_test_split]
-    # train_dataset = dataset[script_args.dataset_train_split]
-    train_dataset = dataset[sft_script_arguments.dataset_train_split]
-    validation_dataset = dataset[sft_script_arguments.dataset_test_split]
-
     def load_and_preprocess_data(dataset, tokenizer):
         """
         Load and preprocess the dataset for training.
@@ -897,12 +490,11 @@ def train_model(
             remove_columns=dataset.column_names,
         )  # TODO: use batched=True
 
-    # tokenized_test_dataset = load_and_preprocess_data(test_dataset, tokenizer)
     tokenized_train_dataset = load_and_preprocess_data(
-        train_dataset, tokenizer
-    )  # TODO: just do train_dataset.map(tokenize_function)
+        chat_threads_train_ds, tokenizer
+    )  # TODO: just do chat_threads_train_ds.map(tokenize_function), etc.
     tokenized_validation_dataset = load_and_preprocess_data(
-        validation_dataset, tokenizer
+        chat_threads_validation_ds, tokenizer
     )
 
     ################
@@ -919,19 +511,7 @@ def train_model(
     metrics = evaluate.combine(["bleu", "meteor", "rouge"])
     metrics_tracker = {}
 
-    def compute_metrics(
-        eval_pred: EvalPrediction, compute_result: bool
-    ) -> (
-        Dict
-    ):  # metrics = self.compute_metrics(EvalPrediction(predictions=all_preds, label_ids=all_labels))
-        # compute_metrics (`Callable[[EvalPrediction], Dict]`, *optional*):
-        #     The function that will be used to compute metrics at evaluation. Must take a [`EvalPrediction`] and return
-        #     a dictionary string to metric values. *Note* When passing TrainingArgs with `batch_eval_metrics` set to
-        #     `True`, your compute_metrics function must take a boolean `compute_result` argument. This will be triggered
-        #     after the last eval batch to signal that the function needs to calculate and return the global summary
-        #     statistics rather than accumulating the batch-level statistics.
-        print("=== compute_metrics ===")
-
+    def compute_metrics(eval_pred: EvalPrediction, compute_result: bool) -> Dict:
         assert isinstance(
             eval_pred, EvalPrediction
         ), f"Expected EvalPrediction, got {type(eval_pred)}"
@@ -960,13 +540,9 @@ def train_model(
         eval_batch_metrics = metrics.compute(
             predictions=predictions,
             references=references,
-            # use_aggregator=True,  # Use the aggregator to get the average of the metrics
         )
 
         computed_metrics = {}
-
-        print("eval_batch_metrics:")
-        print(eval_batch_metrics)
 
         for key, value in eval_batch_metrics.items():
             if type(value) in [list, np.ndarray]:
@@ -977,9 +553,6 @@ def train_model(
 
             if is_last_step:
                 metrics_tracker[key] = 0.0
-
-        print("computed_metrics:")
-        print(computed_metrics)
 
         return computed_metrics
 
@@ -995,11 +568,9 @@ def train_model(
         return pred_ids
 
     trainer = SFTTrainer(
-        # args=training_args,
         args=sft_config,
         compute_metrics=compute_metrics,
         data_collator=DataCollatorForLanguageModeling(mlm=False, tokenizer=tokenizer),
-        # eval_dataset=tokenized_eval_dataset,
         eval_dataset=tokenized_validation_dataset,
         model=model,
         peft_config=peft_config,
@@ -1017,89 +588,22 @@ def train_model(
     with mlflow.start_run(
         log_system_metrics=True,
         nested=True,
-        # run_name=training_args.output_dir,
-        # run_name=sft_config.output_dir,
     ) as run:
-        # try:
-        #     hf_token = _get_hf_token()
-
-        #     train_result = trainer.train(
-        #         resume_from_checkpoint=True,
-        #     )
-
-        # except ValueError as e:
-        #     if "checkpoint" in str(e):
-        #         train_result = trainer.train()
-
-        #     else:
-        #         raise e
-
         train_result = trainer.train()
 
         print("train_result:")
         print(train_result)
 
         # Save and push to hub
-        # trainer.save_model(training_args.output_dir)
         trainer.save_model(sft_config.output_dir)
 
-        # if training_args.push_to_hub:
         if sft_config.push_to_hub:
-            # trainer.push_to_hub(dataset=[script_args.dataset_name])
             trainer.push_to_hub(dataset=[sft_script_arguments.dataset_name])
-
-        # try:
-        #     predictions = trainer.predict(tokenized_test_dataset)
-
-        # except torch.OutOfMemoryError as e:
-        #     print("Out of memory error in predictions. Trying with one example.")
-
-        #     test_dataset_of_one = tokenized_test_dataset.select([0])
-        #     predictions = trainer.predict(test_dataset_of_one)
-
-        # print("predictions:")
-        # print(predictions)
-
-        # train_result = trainer.train()
-
-        # print("mlflow.MlflowClient().get_run(run.info.run_id).data:")
-        # print(mlflow.MlflowClient().get_run(run.info.run_id).data)
-
-        # return f"{pretrained_model}-sft-chat_threads"
-
-        # components = {"model": trainer.model, "tokenizer": trainer.tokenizer}
-
-        # model_info = mlflow.transformers.log_model(
-        #     # transformers_model={"model": trainer.model, "tokenizer": tokenizer_no_pad},
-        #     # transformers_model={"model": trainer.model, "tokenizer": trainer.tokenizer}, # TODO: use tokenizer w/ left padding during training?
-        #     transformers_model=components,
-        #     # prompt_template=prompt_template,
-        #     # signature=signature,
-        #     # artifact_path="model",  # This is a relative path to save model files within MLflow run
-        #     artifact_path="tuned_model",
-        #     # save_pretrained=False, # Save the model in 'reference-only' mode
-        # )
-
-        # return repo_id
-
-        # return model_info.artifact_path
-
-        # return {
-        #     "model": model,
-        #     "tokenizer": tokenizer,
-        # }
-
-        # return components
 
         prompts = []
         responses = []
 
-        # for example in test_ds.select(range(1)):
-        # for example in chat_threads_validation_ds.select(range(1)):
         for example in chat_threads_test_ds.select(range(1)):
-            # example = test_ds[17]
-            print("example: ", example)
-
             text = tokenizer.apply_chat_template(
                 add_generation_prompt=True,
                 documents=json.loads(example["documents"]),
@@ -1108,14 +612,10 @@ def train_model(
                 tokenize=False,
             )
 
-            print("prompt:")
-            print(text)
-
             inputs = tokenizer(text, return_tensors="pt")
 
             streamer = TextStreamer(tokenizer, skip_prompt=True)
 
-            print("response:")
             token_ids = model.generate(**inputs, streamer=streamer, max_new_tokens=512)
 
             response = tokenizer.decode(
@@ -1130,187 +630,38 @@ def train_model(
         prompt = prompts[0]
         response = responses[0]
 
-        print("prompt:")
-        print(prompt)
-
-        print("response:")
-        print(response)
-
         signature = mlflow.models.infer_signature(
             model_input=prompt,
             model_output=response,
-            # Parameters are saved with default values if specified
-            # params={"max_new_tokens": 512, "repetition_penalty": 1.15, "return_full_text": False},
         )
 
-        print("signature:")
-        print(signature)
-
         model_info = mlflow.transformers.log_model(
-            # artifact_path="pretrained_model",
             artifact_path="tuned_model",
-            # prompt_template=
             registered_model_name="TinyLlama-1.1B-Chat-v1.0-sft-chat_threads",
             signature=signature,
             task="text-generation",
-            # transformers_model={"model": model, "tokenizer": tokenizer},
             transformers_model={"model": trainer.model, "tokenizer": trainer.tokenizer},
-            # transformers_model="data/06_models/TinyLlama-1.1B-Chat-v1.0-sft-chat_threads",
         )
 
-        # return model_info.artifact_path
         return model_info.model_uri
 
 
-# def evaluate_model(
-#     # regressor: LinearRegression, X_test: pd.DataFrame, y_test: pd.Series
-#     regressor: LinearRegression, chat_threads_ds: DatasetDict
-# ):
-#     """Calculates and logs the coefficient of determination.
-
-#     Args:
-#         regressor: Trained model.
-#         X_test: Testing data of independent features.
-#         y_test: Testing data for price.
-#     """
-#     y_pred = regressor.predict(X_test)
-#     score = r2_score(y_test, y_pred)
-#     logger = logging.getLogger(__name__)
-#     logger.info("Model has a coefficient R^2 of %.3f on test data.", score)
-
-
-# def evaluate_model(
-#     # pretrained_model: str, tuned_model: str, test_ds: Dataset
-#     pipeline,
-#     test_ds: Dataset,
-# ) -> pd.DataFrame:
-#     # model = AutoModelForCausalLM.from_pretrained(pretrained_model)
-#     # tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
-#     # model = AutoModelForCausalLM.from_pretrained("mjschock/TinyLlama-1.1B-Chat-v1.0")
-#     # tokenizer = AutoTokenizer.from_pretrained("mjschock/TinyLlama-1.1B-Chat-v1.0")
-#     # config = PeftConfig.from_pretrained(
-#     #     "mjschock/TinyLlama-1.1B-Chat-v1.0-sft-chat_threads"
-#     # )
-#     # base_model = AutoModelForCausalLM.from_pretrained("mjschock/TinyLlama-1.1B-Chat-v1.0")
-#     # base_model = AutoModelForCausalLM.from_pretrained(pretrained_model)
-#     # model = PeftModel.from_pretrained(
-#     #     # base_model, "mjschock/TinyLlama-1.1B-Chat-v1.0-sft-chat_threads"
-#     #     base_model,
-#     #     tuned_model,
-#     # )
-#     # # tokenizer = AutoTokenizer.from_pretrained("mjschock/TinyLlama-1.1B-Chat-v1.0")
-#     # tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
-
-#     # dataset = load_dataset("mjschock/chat_threads", revision=DATASET_VERSION)
-
-#     # test_dataset = dataset["test"]
-#     # example = test_dataset[17]
-
-#     prompts = []
-#     responses = []
-
-#     # for example in test_ds:
-#     # for example in test_ds[0:1]:
-#     for example in test_ds.select(range(1)):
-#         # example = test_ds[17]
-#         print("example: ", example)
-
-#         text = pipeline.tokenizer.apply_chat_template(
-#             add_generation_prompt=True,
-#             documents=json.loads(example["documents"]),
-#             conversation=json.loads(example["messages"])[0:-1],
-#             tools=json.loads(example["tools"]),
-#             tokenize=False,
-#         )
-
-#         print("prompt:")
-#         print(text)
-
-#         inputs = pipeline.tokenizer(text, return_tensors="pt")
-
-#         streamer = TextStreamer(pipeline.tokenizer, skip_prompt=True)
-
-#         print("response:")
-#         token_ids = pipeline.model.generate(
-#             **inputs, streamer=streamer, max_new_tokens=512
-#         )
-
-#         response = pipeline.tokenizer.decode(
-#             token_ids[0], clean_up_tokenization_spaces=True, skip_special_tokens=False
-#         )
-
-#         prompts.append(text)
-#         responses.append(response)
-
-#     # with open("pretrain_inference_check_response.txt", "w") as f:
-#     #     f.write(response)
-
-#     # df = pd.DataFrame(
-#     #     {
-#     #         "prompt": [text],
-#     #         "response": [response],
-#     #     }
-#     # )
-
-#     df = pd.DataFrame(
-#         {
-#             "prompt": prompts,
-#             "response": responses,
-#         }
-#     )
-
-#     return df
-
-
-# def evaluate_base_model(pretrained_model: str, test_ds: Dataset) -> pd.DataFrame:
 def evaluate_model(model_uri: str, test_ds: Dataset) -> pd.DataFrame:
     with mlflow.start_run(
         log_system_metrics=True,
         nested=True,
     ):
 
-        # print("type(pretrained_model):")
-        # print(pretrained_model)
-
-        # print("model_uri:")
-        # print(model_uri)
-
-        # raise Exception("model_uri: ", model_uri)
-
-        # tool_model = mlflow.pyfunc.load_model(model_info.model_uri)
         model = mlflow.transformers.load_model(
             device="cpu",
-            # dst_path="data/06_models/TinyLlama-1.1B-Chat-v1.0",
             model_uri=model_uri,
             return_type="components",
         )
 
-        print("model:")
-        print(model)
-
-        # model, tokenizer = model["model"], model["tokenizer"]
-
-        # model = AutoModelForCausalLM.from_pretrained(pretrained_model)
-        # tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
-        # model, tokenizer = FastLanguageModel.from_pretrained(
-        #     # model_name = "lora_model", # YOUR MODEL YOU USED FOR TRAINING
-        #     model_name=pretrained_model,
-        #     # max_seq_length = max_seq_length,
-        #     # dtype = dtype,
-        #     # load_in_4bit = load_in_4bit,
-        # )
-        # FastLanguageModel.for_inference(model) # Enable native 2x faster inference
-
         prompts = []
         responses = []
 
-        # # for example in test_ds:
-        # # for example in test_ds[0:1]:
         for example in test_ds.select(range(1)):
-            # example = test_ds[17]
-            print("example: ", example)
-
-            # text = pretrained_model.tokenizer.apply_chat_template(
             text = model["tokenizer"].apply_chat_template(
                 add_generation_prompt=True,
                 documents=json.loads(example["documents"]),
@@ -1319,22 +670,14 @@ def evaluate_model(model_uri: str, test_ds: Dataset) -> pd.DataFrame:
                 tokenize=False,
             )
 
-            print("prompt:")
-            print(text)
-
-            # inputs = pretrained_model.tokenizer(text, return_tensors="pt")
             inputs = model["tokenizer"](text, return_tensors="pt")
 
-            # streamer = TextStreamer(pretrained_model.tokenizer, skip_prompt=True)
             streamer = TextStreamer(model["tokenizer"], skip_prompt=True)
 
-            print("response:")
-            # token_ids = pretrained_model.model.generate(
             token_ids = model["model"].generate(
                 **inputs, streamer=streamer, max_new_tokens=512
             )
 
-            # response = pretrained_model.tokenizer.decode(
             response = model["tokenizer"].decode(
                 token_ids[0],
                 clean_up_tokenization_spaces=True,
@@ -1343,16 +686,6 @@ def evaluate_model(model_uri: str, test_ds: Dataset) -> pd.DataFrame:
 
             prompts.append(text)
             responses.append(response)
-
-        # # with open("pretrain_inference_check_response.txt", "w") as f:
-        # #     f.write(response)
-
-        # # df = pd.DataFrame(
-        # #     {
-        # #         "prompt": [text],
-        # #         "response": [response],
-        # #     }
-        # # )
 
         df = pd.DataFrame(
             {

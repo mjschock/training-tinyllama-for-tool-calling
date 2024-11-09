@@ -35,7 +35,7 @@ sft_config:
   logging_strategy: steps
   max_seq_length: 4096
   num_of_sequences: 1
-  num_train_epochs: 1.0
+  num_train_epochs: 3.0
   # output_dir: TinyLlama-1.1B-Chat-v1.0-sft-chat_threads
   output_dir: data/06_models/TinyLlama-1.1B-Chat-v1.0-sft-chat_threads
   packing: False

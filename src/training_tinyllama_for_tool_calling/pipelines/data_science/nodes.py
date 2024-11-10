@@ -2,6 +2,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from pprint import pprint
 from typing import Dict, List, Literal, Optional, Tuple
 
 import evaluate
@@ -9,7 +10,7 @@ import mlflow
 import numpy as np
 import pandas as pd
 import torch
-from datasets import Dataset, DatasetDict, load_dataset
+from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset
 from kedro.config import OmegaConfigLoader
 from kedro.framework.project import settings
 from pynvml import *
@@ -31,6 +32,7 @@ from trl import (
     get_peft_config,
     get_quantization_config,
 )
+from unsloth import FastLanguageModel
 
 # PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -353,7 +355,7 @@ def prepare_base_model(
             token_ids = model.generate(**inputs, streamer=streamer, max_new_tokens=512)
 
             response = tokenizer.decode(
-                token_ids[0],
+                token_ids[0][len(inputs["input_ids"][0]) :],
                 clean_up_tokenization_spaces=True,
                 skip_special_tokens=False,
             )
@@ -385,10 +387,10 @@ def train_model(
     chat_threads_train_ds: Dataset,
     chat_threads_validation_ds: Dataset,
     chat_threads_test_ds: Dataset,
+    pretrained_model_uri: str,
     model_config: Dict,
     sft_config: Dict,
     sft_script_arguments: Dict,
-    pretrained_model_uri: str,
 ) -> str:
     """Trains the model.
 
@@ -619,7 +621,7 @@ def train_model(
             token_ids = model.generate(**inputs, streamer=streamer, max_new_tokens=512)
 
             response = tokenizer.decode(
-                token_ids[0],
+                token_ids[0][len(inputs["input_ids"][0]) :],
                 clean_up_tokenization_spaces=True,
                 skip_special_tokens=False,
             )
@@ -646,23 +648,43 @@ def train_model(
         return model_info.model_uri
 
 
-def evaluate_model(model_uri: str, test_ds: Dataset) -> pd.DataFrame:
+def evaluate_model(
+    chat_threads_train_ds: Dataset,
+    chat_threads_validation_ds: Dataset,
+    chat_threads_test_ds: Dataset,
+    model_uri: str,
+) -> pd.DataFrame:
     with mlflow.start_run(
         log_system_metrics=True,
         nested=True,
     ):
 
-        model = mlflow.transformers.load_model(
-            device="cpu",
+        components = mlflow.transformers.load_model(
+            # device="cpu",
             model_uri=model_uri,
             return_type="components",
         )
 
+        model, tokenizer = components["model"], components["tokenizer"]
+
         prompts = []
         responses = []
 
-        for example in test_ds.select(range(1)):
-            text = model["tokenizer"].apply_chat_template(
+        train_ids = [5, 62]
+        validation_ids = [25]
+        test_ids = [0, 17]
+
+        examples = concatenate_datasets(
+            [
+                chat_threads_train_ds.select(train_ids),
+                chat_threads_validation_ds.select(validation_ids),
+                chat_threads_test_ds.select(test_ids),
+            ]
+        )
+
+        # for example in test_ds.select(range(1)):
+        for example in examples:
+            text = tokenizer.apply_chat_template(
                 add_generation_prompt=True,
                 documents=json.loads(example["documents"]),
                 conversation=json.loads(example["messages"])[0:-1],
@@ -670,19 +692,172 @@ def evaluate_model(model_uri: str, test_ds: Dataset) -> pd.DataFrame:
                 tokenize=False,
             )
 
-            inputs = model["tokenizer"](text, return_tensors="pt")
+            inputs = tokenizer(text, return_tensors="pt")
 
-            streamer = TextStreamer(model["tokenizer"], skip_prompt=True)
+            streamer = TextStreamer(tokenizer, skip_prompt=True)
 
-            token_ids = model["model"].generate(
-                **inputs, streamer=streamer, max_new_tokens=512
-            )
+            token_ids = model.generate(**inputs, streamer=streamer, max_new_tokens=512)
 
-            response = model["tokenizer"].decode(
-                token_ids[0],
+            response = tokenizer.decode(
+                token_ids[0][len(inputs["input_ids"][0]) :],
                 clean_up_tokenization_spaces=True,
                 skip_special_tokens=False,
             )
+
+            prompts.append(text)
+            responses.append(response)
+
+        df = pd.DataFrame(
+            {
+                "prompt": prompts,
+                "response": responses,
+            }
+        )
+
+        return df
+
+
+def train_model_v2(
+    chat_threads_train_ds: Dataset,
+    chat_threads_validation_ds: Dataset,
+    model_config: Dict,
+    sft_config: Dict,
+    sft_script_arguments: Dict,
+) -> str:
+    """Trains the model.
+
+    Args:
+        chat_threads_train_ds: Training data.
+        chat_threads_validation_ds: Validation data.
+        chat_threads_test_ds: Test data.
+        model_config: Model configuration.
+        sft_config: SFT configuration.
+        sft_script_arguments: SFT script arguments.
+        pretrained_model_uri: URI of the pretrained model.
+
+    Returns:
+        URI of the trained model.
+    """
+    model_config = ModelConfig(**model_config)
+    sft_config = SFTConfig(**sft_config, hub_token=_get_hf_token())
+    sft_script_arguments = SFTScriptArguments(**sft_script_arguments)
+
+    print("model_config:")
+    pprint(model_config)
+
+    print("sft_config:")
+    pprint(sft_config)
+
+    print("sft_script_arguments:")
+    pprint(sft_script_arguments)
+
+    max_seq_length = 4096  # Choose any! We auto support RoPE Scaling internally!
+    dtype = None  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
+    load_in_4bit = True  # Use 4bit quantization to reduce memory usage. Can be False.
+
+    # 4bit pre quantized models we support for 4x faster downloading + no OOMs.
+    fourbit_models = [
+        "unsloth/tinyllama-bnb-4bit",
+    ]  # More models at https://huggingface.co/unsloth
+
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        # model_name = "unsloth/tinyllama-bnb-4bit", # "unsloth/tinyllama" for 16bit loading
+        # model_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        model_name=fourbit_models[0],
+        max_seq_length=max_seq_length,
+        dtype=dtype,
+        load_in_4bit=load_in_4bit,
+        # token = "hf_...", # use one if using gated models like meta-llama/Llama-2-7b-hf
+    )
+
+
+def evaluate_model_v2(
+    chat_threads_train_ds: Dataset,
+    chat_threads_validation_ds: Dataset,
+    chat_threads_test_ds: Dataset,
+    model_uri: str,
+) -> pd.DataFrame:
+    with mlflow.start_run(
+        log_system_metrics=True,
+        nested=True,
+    ):
+
+        components = mlflow.transformers.load_model(
+            # device="cpu",
+            model_uri=model_uri,
+            return_type="components",
+        )
+
+        model, tokenizer = components["model"], components["tokenizer"]
+
+        FastLanguageModel.for_inference(model)  # Enable native 2x faster inference
+
+        prompts = []
+        responses = []
+
+        train_ids = [5, 62]
+        validation_ids = [25]
+        test_ids = [0, 17]
+
+        examples = concatenate_datasets(
+            [
+                chat_threads_train_ds.select(train_ids),
+                chat_threads_validation_ds.select(validation_ids),
+                chat_threads_test_ds.select(test_ids),
+            ]
+        )
+
+        # for example in test_ds.select(range(1)):
+        for example in examples:
+            # text = model["tokenizer"].apply_chat_template(
+            # text = tokenizer.apply_chat_template(
+            #     add_generation_prompt=True,
+            #     documents=json.loads(example["documents"]),
+            #     conversation=json.loads(example["messages"])[0:-1],
+            #     tools=json.loads(example["tools"]),
+            #     tokenize=False,
+            # )
+
+            # # inputs = model["tokenizer"](text, return_tensors="pt")
+            # inputs = tokenizer(text, return_tensors="pt")
+
+            # # streamer = TextStreamer(model["tokenizer"], skip_prompt=True)
+            # streamer = TextStreamer(tokenizer, skip_prompt=True)
+
+            # # token_ids = model["model"].generate(
+            # token_ids = model.generate(**inputs, streamer=streamer, max_new_tokens=512)
+
+            # # response = model["tokenizer"].decode(
+            # response = tokenizer.decode(
+            #     # token_ids[0],
+            #     token_ids[0][len(inputs["input_ids"][0]) :],
+            #     clean_up_tokenization_spaces=True,
+            #     skip_special_tokens=False,
+            # )
+
+            # prompts.append(text)
+            # responses.append(response)
+
+            inputs = tokenizer.apply_chat_template(
+                add_generation_prompt=True,
+                documents=json.loads(example["documents"]),
+                conversation=json.loads(example["messages"])[0:-1],
+                tools=json.loads(example["tools"]),
+                return_tensors="pt",
+                tokenize=True,
+            ).to("cuda")
+
+            outputs = model.generate(
+                # input_ids=inputs, max_new_tokens=64, use_cache=True, temperature=1.5, min_p=0.1
+                input_ids=inputs,
+                max_new_tokens=256,
+                use_cache=True,
+                temperature=0.0,
+            )
+            batch_decocded_outputs = tokenizer.batch_decode(outputs)
+
+            text = batch_decocded_outputs[0][0 : len(tokenizer.decode(inputs[0]))]
+            response = batch_decocded_outputs[0][len(tokenizer.decode(inputs[0])) :]
 
             prompts.append(text)
             responses.append(response)

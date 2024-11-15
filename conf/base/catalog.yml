@@ -91,6 +91,10 @@ chat_threads_ds:
   dataset_name: mjschock/chat_threads
   type: huggingface.HFDataset
 
+llamafactory_glaive_toolcall_en_df:
+  dataset_name: llamafactory/glaive_toolcall_en
+  type: huggingface.HFDataset
+
 pretrained_model_evaluation_df:
   filepath: data/07_model_output/pretrained_model_evaluation.jsonl # pretrained_model_test_ds_predictions?
   save_args:

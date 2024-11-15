@@ -149,3 +149,9 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# Files to be ignored, temporarily
+Makefile
+mlruns/
+notebooks/
+tmp/

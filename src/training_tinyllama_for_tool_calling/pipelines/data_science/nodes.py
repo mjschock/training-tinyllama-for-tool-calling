@@ -54,18 +54,29 @@ def _get_hf_token() -> str:
 def split_data(data: pd.DataFrame, parameters: Dict) -> Tuple:
     dataset = Dataset.from_pandas(data)
 
-    train_test_ds = dataset.train_test_split(
+    # train_test_ds = dataset.train_test_split(
+    #     seed=parameters["random_state"], test_size=parameters["test_size"]
+    # )
+    # test_validation_ds = train_test_ds["test"].train_test_split(
+    #     seed=parameters["random_state"], test_size=0.5
+    # )
+
+    # build test_set from single example using the first example in the dataset
+    test_ds = dataset.select(range(1))
+
+    # build train and validation sets from the rest of the dataset
+    train_validation_ds = dataset.select(range(1, len(dataset))).train_test_split(
         seed=parameters["random_state"], test_size=parameters["test_size"]
-    )
-    test_validation_ds = train_test_ds["test"].train_test_split(
-        seed=parameters["random_state"], test_size=0.5
     )
 
     chat_threads_ds = DatasetDict(
         {
-            "train": train_test_ds["train"],
-            "test": test_validation_ds["test"],
-            "validation": test_validation_ds["train"],
+            # "train": train_test_ds["train"],
+            "train": train_validation_ds["train"],
+            # "test": test_validation_ds["test"],
+            "test": test_ds,
+            # "validation": test_validation_ds["train"],
+            "validation": train_validation_ds["test"],
         }
     )
 

@@ -9,10 +9,12 @@ import evaluate
 import mlflow
 import numpy as np
 import pandas as pd
+import papermill as pm
 import torch
 from datasets import Dataset, DatasetDict, concatenate_datasets, load_dataset
 from kedro.config import OmegaConfigLoader
 from kedro.framework.project import settings
+from nbformat import NotebookNode
 from pynvml import *
 from transformers import (
     AutoModelForCausalLM,
@@ -881,3 +883,49 @@ def evaluate_model_v2(
         )
 
         return df
+
+
+def train_model_v3(
+    chat_threads_train_ds: Dataset,
+    chat_threads_validation_ds: Dataset,
+    model_config: Dict,
+    sft_config: Dict,
+    sft_script_arguments: Dict,
+) -> str:
+    print("train_model_v2")
+
+    print("\nmodel_config:")
+    pprint(model_config)
+
+    print("\nsft_config:")
+    pprint(sft_config)
+
+    print("\nsft_script_arguments:")
+    pprint(sft_script_arguments)
+
+    cwd = os.getcwd()
+    print(f"cwd: {cwd}")
+
+    nb: NotebookNode = pm.execute_notebook(
+        input_path="notebooks/training-tinyllama-for-tool-calling.ipynb",
+        output_path="notebooks/training-tinyllama-for-tool-calling.output.ipynb",
+        # parameters: Any | None = None,
+        # engine_name: Any | None = None,
+        # request_save_on_cell_execute: bool = True,
+        # prepare_only: bool = False,
+        # kernel_name: Any | None = None,
+        # language: Any | None = None,
+        # progress_bar: bool = True,
+        # log_output: bool = False,
+        # stdout_file: Any | None = None,
+        # stderr_file: Any | None = None,
+        # start_timeout: int = 60,
+        # report_mode: bool = False,
+        # cwd: Any | None = None,
+        # **engine_kwargs: Any
+    )
+
+    print("nb:")
+    print(nb)
+
+    return "model_uri"

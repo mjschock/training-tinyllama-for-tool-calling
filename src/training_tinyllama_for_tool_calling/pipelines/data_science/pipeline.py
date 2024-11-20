@@ -7,6 +7,7 @@ from .nodes import (
     split_data,
     train_model,
     train_model_v2,
+    train_model_v3,
 )
 
 
@@ -94,5 +95,19 @@ def create_pipeline(**kwargs) -> Pipeline:
             #     outputs="tuned_model_evaluation_df",
             #     name="evaluate_tuned_model_node",
             # ),
+            node(
+                func=train_model_v3,
+                inputs=[
+                    "chat_threads_train_ds",
+                    "chat_threads_validation_ds",
+                    # "chat_threads_test_ds",
+                    # "pretrained_model_uri",
+                    "params:model_config",
+                    "params:sft_config",
+                    "params:sft_script_arguments",
+                ],
+                outputs="tuned_model_uri",
+                name="train_model_node",
+            ),
         ]
     )

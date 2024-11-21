@@ -892,7 +892,7 @@ def train_model_v3(
     sft_config: Dict,
     sft_script_arguments: Dict,
 ) -> str:
-    print("train_model_v2")
+    print("train_model_v3")
 
     print("\nmodel_config:")
     pprint(model_config)

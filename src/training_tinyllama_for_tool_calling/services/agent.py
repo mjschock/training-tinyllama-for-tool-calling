@@ -43,11 +43,16 @@ max_seq_length = 4096
 # model_name = "meta-llama/Llama-3.2-1B-Instruct"
 # model_name = "data/06_models/model/lora"
 # model_name = "data/06_models/mjschock/TinyLlama-1.1B-Chat-v1.0_lora_sft"
-model_name = f"{project_root}/data/06_models/mjschock/TinyLlama-1.1B-Chat-v1.0-tool-calling-sft/lora"
+# model_name = f"{project_root}/data/06_models/mjschock/TinyLlama-1.1B-Chat-v1.0-tool-calling-sft/lora"
+# model_name = f"{project_root}/data/06_models/mjschock/TinyLlama-1.1B-Chat-v1.0-tool-calling-sft/lora"
 
-
-class Client:
+class ModelClient:
     def __init__(self):
+        user_id = "mjschock" # TODO: get this dynamically
+        pretrained_model_name = "TinyLlama-1.1B-Chat-v1.0"
+        model_name = f"{project_root}/data/06_models/{user_id}/{pretrained_model_name}-tool-calling-sft/lora"
+        # model_name = f"{project_root}/data/06_models/{user_id}/{pretrained_model_name}-tool-calling-sft/unsloth_lora" # TODO:Maybe this would work better for using the model rather than code path?
+
         model, tokenizer = FastLanguageModel.from_pretrained(
             dtype=dtype,
             load_in_4bit=load_in_4bit,
@@ -141,7 +146,7 @@ class Client:
         )
 
 
-class Model(ChatModel):
+class Agent(ChatModel):
     def __init__(self):
         # self.model_name = "llama3.2:1b"
         self.client = None
@@ -149,7 +154,10 @@ class Model(ChatModel):
     def load_context(self, context):
         # self.model_name = "llama3.2:1b"
         # self.client = ollama.Client()
-        self.client = Client()
+        print('=== load_context ===')
+        print('context:', context)
+
+        self.client = ModelClient()
 
     # the core method that needs to be implemented. this function
     # will be called every time a user sends messages to our model
@@ -195,4 +203,4 @@ class Model(ChatModel):
         return ChatResponse.from_dict(response.to_dict())
 
 
-set_model(Model())
+set_model(Agent())

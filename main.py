@@ -1,10 +1,10 @@
-# main.py
+from typing import Dict, List, Literal, Optional
+
 import flet as ft
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Dict, Literal, Optional
 from pydantic import BaseModel
-import uvicorn
 
 
 # --- FastAPI Models ---
@@ -12,14 +12,26 @@ class Message(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: str
 
+    def to_dict(self):
+        return {"role": self.role, "content": self.content}
+
 
 class Conversation(BaseModel):
     history: List[Message]
-    latest_message_options: List[Message]  # List of possible latest messages
+    latest_message_options: List[Message]
+
+    def to_dict(self):
+        return {
+            "history": [msg.to_dict() for msg in self.history],
+            "latest_message_options": [
+                msg.to_dict() for msg in self.latest_message_options
+            ],
+        }
 
 
 # --- FastAPI Backend ---
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,6 +39,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 # Sample conversation data
 SAMPLE_CONVERSATION = Conversation(
     history=[
@@ -46,7 +59,7 @@ SAMPLE_CONVERSATION = Conversation(
 
 @app.get("/conversation")
 async def get_conversation():
-    return SAMPLE_CONVERSATION
+    return SAMPLE_CONVERSATION.to_dict()
 
 
 # --- Flet Frontend ---
@@ -54,36 +67,33 @@ def main(page: ft.Page):
     page.title = "Conversation Thread"
     page.theme_mode = "light"
     page.padding = 20
+    page.scroll = "auto"
 
-    history_container = ft.Column(
-        spacing=10,
-        scroll=ft.ScrollMode.AUTO,
-        expand=True,
-    )
-
-    latest_options_container = ft.Container(
-        padding=ft.padding.only(top=20),
-    )
+    # Set initial window
+    # dimensions
+    page.window.height = 800
+    page.window.width = 600
 
     def create_message_container(
         message: dict, is_latest: bool = False
     ) -> ft.Container:
-        role = message["role"]
-        content = message["content"]
-
-        # Define colors and alignment based on role
         colors = {
             "system": ft.colors.GREY_300,
             "user": ft.colors.BLUE_100,
             "assistant": ft.colors.GREEN_100,
             "tool": ft.colors.ORANGE_100,
         }
-        return ft.Container(
+
+        message_container = ft.Container(
             content=ft.Column(
-                [
+                controls=[
                     ft.Row(
-                        [
-                            ft.Text(role.upper(), size=12, weight=ft.FontWeight.BOLD),
+                        controls=[
+                            ft.Text(
+                                message["role"].upper(),
+                                size=12,
+                                weight=ft.FontWeight.BOLD,
+                            ),
                             (
                                 ft.Text(
                                     "OPTION" if is_latest else "",
@@ -92,80 +102,86 @@ def main(page: ft.Page):
                                     weight=ft.FontWeight.BOLD,
                                 )
                                 if is_latest
-                                else ft.Container()
+                                else None
                             ),
                         ]
                     ),
-                    ft.Text(content),
-                ]
+                    ft.Text(message["content"]),
+                ],
+                spacing=5,
             ),
-            bgcolor=colors.get(role, ft.colors.WHITE),
+            bgcolor=colors.get(message["role"], ft.colors.WHITE),
+            border_radius=10,
             padding=10,
-            border_radius=8,
-            width=page.window_width - 40,
+            margin=ft.margin.only(bottom=10),
+            width=page.window.width - 40,
         )
 
-    def create_latest_options_view(options: List[dict]) -> ft.Container:
-        tabs = ft.Tabs(
-            selected_index=0,
-            tabs=[
-                ft.Tab(
-                    text=f"Option {i+1}",
-                    content=create_message_container(option, is_latest=True),
-                )
-                for i, option in enumerate(options)
-            ],
-        )
-        return ft.Container(content=tabs)
+        return message_container
 
-    async def load_conversation():
-        # Clear existing messages
-        history_container.controls.clear()
+    history_column = ft.Column(controls=[], scroll="auto", spacing=10, expand=True)
+    options_tabs = ft.Tabs(selected_index=0, animation_duration=300, tabs=[])
 
-        # In a real app, this would fetch from the
-        # FastAPI endpoint Load history messages
-        for message in SAMPLE_CONVERSATION.history:
-            message_dict = message.dict()
-            history_container.controls.append(
-                create_message_container(message_dict, is_latest=False)
-            )
+    async def update_display():
+        # Update history
+        history_column.controls.clear()
 
-        # Load latest message options
-        latest_options = [
-            msg.dict() for msg in SAMPLE_CONVERSATION.latest_message_options
-        ]
-        latest_options_container.content = create_latest_options_view(latest_options)
+        for msg in SAMPLE_CONVERSATION.history:
+            msg_dict = msg.to_dict()
+            container = create_message_container(msg_dict, is_latest=False)
+
+            history_column.controls.append(container)
+
+        # Update options
+        options_tabs.tabs.clear()
+
+        for i, msg in enumerate(SAMPLE_CONVERSATION.latest_message_options):
+            msg_dict = msg.to_dict()
+            container = create_message_container(msg_dict, is_latest=True)
+            tab = ft.Tab(text=f"Option {i+1}", content=container)
+
+            options_tabs.tabs.append(tab)
 
         await page.update_async()
 
-    # Create divider between history and latest
-    # message
-    divider = ft.Divider(height=1, color=ft.colors.GREY_400)
-    page.add(
-        ft.Text("Conversation History", size=24, weight=ft.FontWeight.BOLD),
-        history_container,
-        divider,
-        ft.Text("Latest Message Options", size=24, weight=ft.FontWeight.BOLD),
-        latest_options_container,
+    # Create main sections
+    history_section = ft.Column(
+        controls=[
+            ft.Text("Conversation History", size=24, weight=ft.FontWeight.BOLD),
+            history_column,
+        ],
+        spacing=10,
     )
 
-    page.window_width = 600
-    page.window_height = 800
+    options_section = ft.Column(
+        controls=[
+            ft.Text("Latest Message Options", size=24, weight=ft.FontWeight.BOLD),
+            options_tabs,
+        ],
+        spacing=10,
+    )
 
-    # Load initial conversation
-    page.on_load = load_conversation
+    # Add sections to page with
+    # divider
+    page.add(
+        history_section, ft.Divider(height=1, color=ft.colors.GREY_400), options_section
+    )
+
+    # Set up resize handler
+    async def on_resized(e):
+        await update_display()
+
+    page.on_resized = on_resized
+    page.on_load = update_display
 
 
 if __name__ == "__main__":
-    # Run both servers
     import threading
 
-    # Start FastAPI server in a separate thread
     def run_fastapi():
         uvicorn.run(app, host="127.0.0.1", port=8000)
 
     fastapi_thread = threading.Thread(target=run_fastapi, daemon=True)
     fastapi_thread.start()
 
-    # Start Flet app
     ft.app(target=main, view=ft.AppView.WEB_BROWSER)

@@ -46,9 +46,10 @@ max_seq_length = 4096
 # model_name = f"{project_root}/data/06_models/mjschock/TinyLlama-1.1B-Chat-v1.0-tool-calling-sft/lora"
 # model_name = f"{project_root}/data/06_models/mjschock/TinyLlama-1.1B-Chat-v1.0-tool-calling-sft/lora"
 
+
 class ModelClient:
     def __init__(self):
-        user_id = "mjschock" # TODO: get this dynamically
+        user_id = "mjschock"  # TODO: get this dynamically
         pretrained_model_name = "TinyLlama-1.1B-Chat-v1.0"
         model_name = f"{project_root}/data/06_models/{user_id}/{pretrained_model_name}-tool-calling-sft/lora"
         # model_name = f"{project_root}/data/06_models/{user_id}/{pretrained_model_name}-tool-calling-sft/unsloth_lora" # TODO:Maybe this would work better for using the model rather than code path?
@@ -154,8 +155,8 @@ class Agent(ChatModel):
     def load_context(self, context):
         # self.model_name = "llama3.2:1b"
         # self.client = ollama.Client()
-        print('=== load_context ===')
-        print('context:', context)
+        print("=== load_context ===")
+        print("context:", context)
 
         self.client = ModelClient()
 

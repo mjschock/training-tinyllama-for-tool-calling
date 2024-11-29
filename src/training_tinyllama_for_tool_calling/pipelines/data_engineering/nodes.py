@@ -1,5 +1,6 @@
 import json
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Literal, Optional, Union
 
@@ -173,69 +174,49 @@ def _parse_chat_threads(
     chat_threads = []
 
     for index, row in gorilla_berkeley_function_call_leaderboard_v3_df.iterrows():
-        execution_result_type = row["execution_result_type"]
+        try:
+            execution_result_type = row["execution_result_type"]
 
-        # If any of the execution results are not exact matches, skip the example
-        if any([x != "exact_match" for x in execution_result_type]):
-            # print("execution_result_type")
-            # print(execution_result_type)
+            # If any of the execution results are not exact matches, skip the example
+            if any([x != "exact_match" for x in execution_result_type]):
+                # print("execution_result_type")
+                # print(execution_result_type)
 
-            # print("Skipping...") # TODO: address these cases
-            continue
+                # print("Skipping...") # TODO: address these cases
+                continue
 
-        question = row["question"]
-        assert len(question) == 1, f"{len(question)} != 1"
+            question = row["question"]
+            assert len(question) == 1, f"{len(question)} != 1"
 
-        ground_truth = row["ground_truth"]
+            ground_truth = row["ground_truth"]
 
-        # print('\nfunction:')
-        # print(row["function"])
-
-        tools = []
-
-        for function in row["function"]:
             # print('\nfunction:')
-            # print(function)
+            # print(row["function"])
 
-            properties: Dict[str, ParamProperty] = {}
+            tools = []
 
-            for prop_name, prop in function["parameters"]["properties"].items():
-                # print(f"\n{prop_name}:")
-                # print(prop)
+            for function in row["function"]:
+                # print('\nfunction:')
+                # print(function)
 
-                prop_type = prop["type"]
+                properties: Dict[str, ParamProperty] = {}
 
-                if prop_type == "dict":
-                    prop_type = "object"
+                for prop_name, prop in function["parameters"]["properties"].items():
+                    # print(f"\n{prop_name}:")
+                    # print(prop)
 
-                elif prop_type == "float":
-                    prop_type = "number"
+                    prop_type = prop["type"]
 
-                elif prop_type == "tuple":
-                    prop_type = "array"
+                    if prop_type == "dict":
+                        prop_type = "object"
 
-                assert prop_type in [
-                    "string",
-                    "number",
-                    "integer",
-                    "object",
-                    "array",
-                    "boolean",
-                    "null",
-                ], f"{prop_type} not in ['string', 'number', 'integer', 'object', 'array', 'boolean', 'null']"
+                    elif prop_type == "float":
+                        prop_type = "number"
 
-                enum: List[str] | None = prop.get("enum")
+                    elif prop_type == "tuple":
+                        prop_type = "array"
 
-                if prop_type == "array":
-                    items_type = prop["items"]["type"]
-
-                    if items_type == "float":
-                        items_type = "number"
-
-                    elif items_type == "tuple":
-                        items_type = "array"
-
-                    assert items_type in [
+                    assert prop_type in [
                         "string",
                         "number",
                         "integer",
@@ -243,202 +224,274 @@ def _parse_chat_threads(
                         "array",
                         "boolean",
                         "null",
-                    ], f"{items_type} not in ['string', 'number', 'integer', 'object', 'array', 'boolean', 'null']"
+                    ], f"{prop_type} not in ['string', 'number', 'integer', 'object', 'array', 'boolean', 'null']"
 
-                    items = ParamType(
-                        type=items_type,
+                    enum: List[str] | None = prop.get("enum")
+
+                    if prop_type == "array":
+                        items_type = prop["items"]["type"]
+
+                        if items_type == "float":
+                            items_type = "number"
+
+                        elif items_type == "tuple":
+                            items_type = "array"
+
+                        assert items_type in [
+                            "string",
+                            "number",
+                            "integer",
+                            "object",
+                            "array",
+                            "boolean",
+                            "null",
+                        ], f"{items_type} not in ['string', 'number', 'integer', 'object', 'array', 'boolean', 'null']"
+
+                        items = ParamType(
+                            type=items_type,
+                        )
+
+                    else:
+                        items = None
+
+                    properties[prop_name] = ParamProperty(
+                        description=prop.get("description"),
+                        enum=enum,
+                        items=items,
+                        type=prop_type,
                     )
 
-                else:
-                    items = None
+                tool_params_schema_type = function["parameters"]["type"]
 
-                properties[prop_name] = ParamProperty(
-                    description=prop.get("description"),
-                    enum=enum,
-                    items=items,
-                    type=prop_type,
+                if tool_params_schema_type == "dict":
+                    tool_params_schema_type = "object"
+
+                assert (
+                    tool_params_schema_type == "object"
+                ), f"{tool_params_schema_type} != object"
+
+                parameters = ToolParamsSchema(
+                    additionalProperties=function["parameters"].get(
+                        "additionalProperties"
+                    ),
+                    properties=properties,
+                    required=function["parameters"].get("required"),
+                    type=tool_params_schema_type,
                 )
 
-            tool_params_schema_type = function["parameters"]["type"]
+                tool = FunctionToolDefinition(
+                    description=function["description"],
+                    name=function["name"],
+                    parameters=parameters,
+                    strict=function.get("strict", False),
+                )
 
-            if tool_params_schema_type == "dict":
-                tool_params_schema_type = "object"
+                tools.append(tool)
 
-            assert (
-                tool_params_schema_type == "object"
-            ), f"{tool_params_schema_type} != object"
+            # print('\ntools:')
+            # print(tools)
 
-            parameters = ToolParamsSchema(
-                additionalProperties=function["parameters"].get("additionalProperties"),
-                properties=properties,
-                required=function["parameters"].get("required"),
-                type=tool_params_schema_type,
-            )
+            # print('\nground_truth:')
+            # print(ground_truth)
 
-            tool = FunctionToolDefinition(
-                description=function["description"],
-                name=function["name"],
-                parameters=parameters,
-                strict=function.get("strict", False),
-            )
+            tool_calls = []
 
-            tools.append(tool)
+            for function_call_signature in ground_truth:
+                # print('\nfunction_call_signature:')
+                # print(function_call_signature) # e.g. calc_binomial_probability(n=20, k=5, p=1/6)
 
-        # print('\ntools:')
-        # print(tools)
+                function_call_name = function_call_signature.split("(")[
+                    0
+                ]  # e.g. 'calc_binomial_probability'
 
-        # print('\nground_truth:')
-        # print(ground_truth)
+                # print('\nfunction_call_name:')
+                # print(function_call_name)
 
-        tool_calls = []
+                # function_call_arguments = function_call_signature.split("(")[1][:-1] # strip off the trailing ')', e.g. 'n=20, k=5, p=1/6'
+                function_call_arguments = (
+                    function_call_signature.replace(function_call_name, "")
+                    .strip("(")
+                    .strip(")")
+                )  # strip off the leading and trailing '(', ')', e.g. 'n=20, k=5, p=1/6'
 
-        for function_call_signature in ground_truth:
-            # print('\nfunction_call_signature:')
-            # print(function_call_signature) # e.g. calc_binomial_probability(n=20, k=5, p=1/6)
+                # print('\nfunction_call_arguments:')
+                # print(function_call_arguments)
 
-            function_call_name = function_call_signature.split("(")[
-                0
-            ]  # e.g. 'calc_binomial_probability'
+                function_call_arguments_json = {}
 
-            # print('\nfunction_call_name:')
-            # print(function_call_name)
+                # print('function_call_name:')
+                # print(function_call_name)
 
-            # function_call_arguments = function_call_signature.split("(")[1][:-1] # strip off the trailing ')', e.g. 'n=20, k=5, p=1/6'
-            function_call_arguments = (
-                function_call_signature.replace(function_call_name, "")
-                .strip("(")
-                .strip(")")
-            )  # strip off the leading and trailing '(', ')', e.g. 'n=20, k=5, p=1/6'
+                tool = next((x for x in tools if x.name == function_call_name), None)
 
-            # print('\nfunction_call_arguments:')
-            # print(function_call_arguments)
+                # print('tool:')
+                # print(tool)
 
-            function_call_arguments_json = {}
+                tool_parameters = tool.parameters
 
-            # print('function_call_name:')
-            # print(function_call_name)
+                # print('\ntool_parameters:')
+                # print(tool_parameters)
 
-            tool = next((x for x in tools if x.name == function_call_name), None)
+                for prop_name, prop in tool_parameters.properties.items():
+                    # print(f"\n{prop_name}:")
+                    # print(prop)
 
-            # print('tool:')
-            # print(tool)
+                    if f"{prop_name}=" in function_call_arguments:
+                        if prop.type == "array":
+                            # prop_value = re.findall(r"\[(.*?)\]", function_call_arguments.split(f"{prop_name}=")[1].split(",")[0])
+                            # prop_value = function_call_arguments.split(f"{prop_name}=")[1]
+                            # print('\nfunction_call_arguments:')
+                            # print(function_call_arguments)
+                            # splits = function_call_arguments.split("=")
+                            # print('\splits:')
+                            # print(splits)
+                            # prop_value_position = splits.index(f"{prop_name}") + 1
+                            # prop_value = splits[prop_value_position]
+                            # last_equals_position = function_call_arguments.rfind("=")
+                            prop_value = function_call_arguments.split(f"{prop_name}=")[
+                                1
+                            ].split("=")[0]
+                            # print('\nprop_value (before):')
+                            # print(prop_value)
 
-            tool_parameters = tool.parameters
+                            index_of_opening_bracket_or_paren = (
+                                prop_value.find("[")
+                                if "[" in prop_value
+                                else prop_value.find("(")
+                            )
+                            index_of_closing_bracket_or_paren = (
+                                prop_value.rfind("]")
+                                if "]" in prop_value
+                                else prop_value.rfind(")")
+                            )
+                            # prop_value = prop_value[: index_of_last_end_bracket + 1]
 
-            # print('\ntool_parameters:')
-            # print(tool_parameters)
+                            if index_of_closing_bracket_or_paren != -1:
+                                prop_value = prop_value[
+                                    : index_of_closing_bracket_or_paren + 1
+                                ]
 
-            for prop_name, prop in tool_parameters.properties.items():
-                # print(f"\n{prop_name}:")
-                # print(prop)
+                            else:
+                                assert (
+                                    index_of_opening_bracket_or_paren != -1
+                                ), f"{index_of_opening_bracket_or_paren} == -1"
 
-                if f"{prop_name}=" in function_call_arguments:
-                    if prop.type == "array":
-                        # prop_value = re.findall(r"\[(.*?)\]", function_call_arguments.split(f"{prop_name}=")[1].split(",")[0])
-                        # prop_value = function_call_arguments.split(f"{prop_name}=")[1]
-                        # print('\nfunction_call_arguments:')
-                        # print(function_call_arguments)
-                        # splits = function_call_arguments.split("=")
-                        # print('\splits:')
-                        # print(splits)
-                        # prop_value_position = splits.index(f"{prop_name}") + 1
-                        # prop_value = splits[prop_value_position]
-                        # last_equals_position = function_call_arguments.rfind("=")
-                        prop_value = function_call_arguments.split(f"{prop_name}=")[
-                            1
-                        ].split("=")[0]
-                        index_of_last_end_bracket = prop_value.rfind("]")
-                        prop_value = prop_value[: index_of_last_end_bracket + 1]
-                        # print('\nprop_value:')
-                        # print(prop_value)
+                                if prop_value[0] == "[":
+                                    prop_value = prop_value + "]"
 
-                    elif prop.type == "boolean":
-                        prop_value = eval(
-                            function_call_arguments.split(f"{prop_name}=")[1].split(
-                                ","
-                            )[0]
-                        )
+                                elif prop_value[0] == "(":
+                                    prop_value = prop_value + ")"
 
-                    elif prop.type == "integer":
-                        prop_value = int(
-                            function_call_arguments.split(f"{prop_name}=")[1].split(
-                                ","
-                            )[0]
-                        )
+                                else:
+                                    raise Exception(
+                                        f"Unsupported prop_value: {prop_value}"
+                                    )
 
-                    elif prop.type == "number":
-                        prop_value = eval(
-                            function_call_arguments.split(f"{prop_name}=")[1].split(
-                                ","
-                            )[0]
-                        )
+                            # print('\nprop_value (after):')
+                            # print(prop_value)
 
-                    elif prop.type == "object":
-                        prop_value = eval(
-                            function_call_arguments.split(f"{prop_name}=")[1].split(
-                                ","
-                            )[0]
-                        )
+                        elif prop.type == "boolean":
+                            prop_value = eval(
+                                function_call_arguments.split(f"{prop_name}=")[1].split(
+                                    ","
+                                )[0]
+                            )
 
-                    elif prop.type == "string":
-                        prop_value = function_call_arguments.split(f"{prop_name}=")[
-                            1
-                        ].split(",")[0]
+                        elif prop.type == "integer":
+                            prop_value = int(
+                                function_call_arguments.split(f"{prop_name}=")[1].split(
+                                    ","
+                                )[0]
+                            )
 
-                    else:
-                        raise Exception(f"Unsupported prop type: {prop.type}")
+                        elif prop.type == "number":
+                            # prop_value = eval(
+                            #     function_call_arguments.split(f"{prop_name}=")[1].split(
+                            #         ","
+                            #     )[0]
+                            # )
+                            prop_value = function_call_arguments.split(f"{prop_name}=")[
+                                1
+                            ].split(",")[0]
 
-                    function_call_arguments_json[prop_name] = prop_value
+                        elif prop.type == "object":
+                            prop_value = eval(
+                                function_call_arguments.split(f"{prop_name}=")[1].split(
+                                    ","
+                                )[0]
+                            )
 
-                elif len(tool_parameters.properties) == 1:
-                    # If there is only one parameter, assume it is the only one
-                    if prop.type == "integer":
-                        prop_value = int(function_call_arguments)
+                        elif prop.type == "string":
+                            prop_value = function_call_arguments.split(f"{prop_name}=")[
+                                1
+                            ].split(",")[0]
 
-                    else:
-                        prop_value = eval(function_call_arguments)
+                        else:
+                            raise Exception(f"Unsupported prop type: {prop.type}")
 
-                    function_call_arguments_json[prop_name] = prop_value
+                        function_call_arguments_json[prop_name] = prop_value
 
-            # print('\nfunction_call_arguments_json:')
-            # print(function_call_arguments_json)
+                    elif len(tool_parameters.properties) == 1:
+                        # If there is only one parameter, assume it is the only one
+                        if prop.type == "integer":
+                            prop_value = int(function_call_arguments)
 
-            # print('\nrebuilt_function_call_signature:')
-            # print(rebuilt_function_call_signature)
+                        else:
+                            prop_value = eval(function_call_arguments)
 
-            try:
+                        function_call_arguments_json[prop_name] = prop_value
+
+                # print('\nfunction_call_arguments_json:')
+                # print(function_call_arguments_json)
+
+                # print('\nrebuilt_function_call_signature:')
+                # print(rebuilt_function_call_signature)
+
+                for prop_name in tool_parameters.required:
+                    if prop_name not in function_call_arguments_json:
+                        raise Exception(f"Missing required prop: {prop_name}")
+
                 try:
-                    rebuilt_function_call_signature = f"{function_call_name}({', '.join([f'{k}={v}' for k, v in function_call_arguments_json.items()])})"
-                    assert (
-                        rebuilt_function_call_signature == function_call_signature
-                    ), f"{rebuilt_function_call_signature} != {function_call_signature}"
+                    try:
+                        rebuilt_function_call_signature = f"{function_call_name}({', '.join([f'{k}={v}' for k, v in function_call_arguments_json.items()])})"
+                        assert (
+                            rebuilt_function_call_signature == function_call_signature
+                        ), f"{rebuilt_function_call_signature}\n!=\n{function_call_signature}"
+
+                    except AssertionError as e:
+                        rebuilt_function_call_signature = f"{function_call_name}({','.join([f'{k}={v}' for k, v in function_call_arguments_json.items()])})"
+                        assert (
+                            rebuilt_function_call_signature == function_call_signature
+                        ), f"{rebuilt_function_call_signature}\n!=\n{function_call_signature}"
 
                 except AssertionError as e:
-                    rebuilt_function_call_signature = f"{function_call_name}({','.join([f'{k}={v}' for k, v in function_call_arguments_json.items()])})"
-                    assert (
-                        rebuilt_function_call_signature == function_call_signature
-                    ), f"{rebuilt_function_call_signature} != {function_call_signature}"
+                    # print(e)
 
-            except AssertionError as e:
-                print(e)
+                    # print("Skipping...")
+                    # continue
+                    raise e
 
-                print("Skipping...")
-                continue
+                # for prop_name in tool_parameters.required:
+                #     if prop_name not in function_call_arguments_json:
+                #         raise Exception(f"Missing required prop: {prop_name}")
 
-            for prop_name in tool_parameters.required:
-                if prop_name not in function_call_arguments_json:
-                    raise Exception(f"Missing required prop: {prop_name}")
+                tool_call = ToolCall(
+                    function=FunctionToolCallArguments(
+                        arguments=json.dumps(function_call_arguments_json),
+                        name=function_call_name,
+                    ),
+                    id=f"call_{len(tool_calls)}",
+                    type="function",
+                )
 
-            tool_call = ToolCall(
-                function=FunctionToolCallArguments(
-                    arguments=json.dumps(function_call_arguments_json),
-                    name=function_call_name,
-                ),
-                id=f"call_{len(tool_calls)}",
-                type="function",
-            )
+                tool_calls.append(tool_call)
 
-            tool_calls.append(tool_call)
+        except AssertionError as e:
+            print(e)
+
+            # raise e
+            print("Skipping...")
+            continue
 
         # print('\ntool_calls:')
         # print(tool_calls)
@@ -829,6 +882,84 @@ def preprocess_team_ace_toolace_df(team_ace_toolace_df: pd.DataFrame) -> pd.Data
 #     return json.dumps(json_list)
 
 
+# Copied and modified from https://cookbook.openai.com/examples/chat_finetuning_data_prep
+def validate_model_input_table_df(model_input_table_df: pd.DataFrame) -> pd.DataFrame:
+    # Format error checks
+    format_errors = defaultdict(int)
+
+    # for ex in dataset:
+    for _, row in model_input_table_df.iterrows():
+        ex = row.to_dict()
+
+        # print("ex:")
+        # print(ex)
+
+        if not isinstance(ex, dict):
+            format_errors["data_type"] += 1
+            raise Exception(f"Invalid data type: {type(ex)}")
+            continue
+
+        # messages = ex.get("messages", None)
+        messages = json.loads(ex.get("messages", None))
+
+        if not messages:
+            format_errors["missing_messages_list"] += 1
+            raise Exception("Missing messages list")
+            continue
+
+        for message in messages:
+            # print("message:")
+            # print(message)
+
+            # if "role" not in message or "content" not in message:
+            if "role" not in message:
+                format_errors["message_missing_key"] += 1
+                raise Exception("Missing message key")
+
+            if any(
+                k
+                not in (
+                    "audio",
+                    "content",
+                    "name",
+                    "refusal",
+                    "role",
+                    "tool_call_id",
+                    "tool_calls",
+                    "weight",
+                )
+                for k in message
+            ):
+                format_errors["message_unrecognized_key"] += 1
+                raise Exception(f"Unrecognized message key: {message.keys()}")
+
+            if message.get("role", None) not in ("assistant", "system", "tool", "user"):
+                format_errors["unrecognized_role"] += 1
+                raise Exception(f"Unrecognized role: {message.get('role', None)}")
+
+            content = message.get("content", None)
+            tool_calls = message.get("tool_calls", None)
+
+            # if (not content and not tool_calls) or not isinstance(content, str):
+            if not content and not tool_calls:
+                format_errors["missing_content"] += 1
+                raise Exception("Missing content or tool calls")
+
+        if not any(message.get("role", None) == "assistant" for message in messages):
+            format_errors["example_missing_assistant_message"] += 1
+            raise Exception("Missing assistant message")
+
+    if format_errors:
+        print("Found errors:")
+        for k, v in format_errors.items():
+            print(f"{k}: {v}")
+
+        raise Exception("Errors found")
+
+    # else:
+    # print("No errors found")
+
+
 def create_model_input_table_df(
     chat_threads_df: pd.DataFrame,
     drone_training_df: pd.DataFrame,
@@ -893,5 +1024,6 @@ def create_model_input_table_df(
     )
 
     # TODO: use hook with Great Expectations to validate the model_input_table
+    validate_model_input_table_df(model_input_table)
 
     return model_input_table

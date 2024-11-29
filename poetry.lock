@@ -1246,6 +1246,27 @@ test = ["certifi", "cryptography-vectors (==43.0.3)", "pretend", "pytest (>=6.2.
 test-randomorder = ["pytest-randomly"]
 
 [[package]]
+name = "cut-cross-entropy"
+version = "24.11.4"
+description = "Code for cut cross entropy, a memory efficient implementation of linear-cross-entropy loss."
+optional = false
+python-versions = ">=3.10"
+files = [
+    {file = "cut_cross_entropy-24.11.4-py3-none-any.whl", hash = "sha256:00f8799dc6623bf4fdd2e35c2b2bd9bdbafc66d3342217cd31da5f87f7eabed6"},
+    {file = "cut_cross_entropy-24.11.4.tar.gz", hash = "sha256:93daf54d262bbd5298837b7fa35a96728e3434cfe91ed2cecdb656981bb8acf1"},
+]
+
+[package.dependencies]
+torch = "*"
+triton = "*"
+
+[package.extras]
+all = ["accelerate (>=0.34.2)", "cut-cross-entropy[transformers]", "datasets (>=3.1.0)", "deepspeed (>=0.15.1)", "fire", "huggingface-hub (>=0.26.2)", "pandas", "tqdm"]
+dev = ["build", "cut-cross-entropy[all,test]", "pre-commit", "twine"]
+test = ["pytest"]
+transformers = ["transformers (>=4.44.2)"]
+
+[[package]]
 name = "cycler"
 version = "0.12.1"
 description = "Composable style cycles"
@@ -8934,13 +8955,13 @@ files = [
 
 [[package]]
 name = "unsloth"
-version = "2024.11.7"
+version = "2024.11.5"
 description = "2-5X faster LLM finetuning"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "unsloth-2024.11.7-py3-none-any.whl", hash = "sha256:03b03732f254bb79546ca1dbde4ca377b5c3dcaa7b0826bbde142b4188996c42"},
-    {file = "unsloth-2024.11.7.tar.gz", hash = "sha256:f81fa4ce3ce65db872ad108628d3a01cc78458a0781eb1f30000d657bd9e7a4c"},
+    {file = "unsloth-2024.11.5-py3-none-any.whl", hash = "sha256:0cbf35cd268d1fedd9a94b67467b62d245c96d93d68e71bf9ef4979e966fc3a1"},
+    {file = "unsloth-2024.11.5.tar.gz", hash = "sha256:2d903c9edd7825c34c931a491bd7687921450117196516285b43eae97e311e26"},
 ]
 
 [package.dependencies]
@@ -9023,23 +9044,25 @@ kaggle-new = ["bitsandbytes (>=0.43.3)", "unsloth[huggingface]"]
 
 [[package]]
 name = "unsloth-zoo"
-version = "2024.11.5"
+version = "2024.11.8"
 description = "Utils for Unsloth"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "unsloth_zoo-2024.11.5-py3-none-any.whl", hash = "sha256:4c27de8e9a6e98d712394c229b2994652c1f01d0ffeb4a40b2f835a03cb0edbe"},
-    {file = "unsloth_zoo-2024.11.5.tar.gz", hash = "sha256:8820972bd7a1a29fbaeadb7b4ba3539dc797323cba749d80f2a639f171b7e95a"},
+    {file = "unsloth_zoo-2024.11.8-py3-none-any.whl", hash = "sha256:53443b8791c5b9b2f1a22de33372ae4e483d72b86b0429876db27c62817e6029"},
+    {file = "unsloth_zoo-2024.11.8.tar.gz", hash = "sha256:75e762877587b2628e58b4b28a0f985804c97be784c720fff3406ef03b44f5db"},
 ]
 
 [package.dependencies]
 accelerate = ">=0.34.1"
+cut_cross_entropy = "*"
 datasets = ">=2.16.0"
-hf-transfer = "*"
-huggingface-hub = "*"
+hf_transfer = "*"
+huggingface_hub = "*"
 numpy = "*"
 packaging = "*"
 peft = ">=0.7.1,<0.11.0 || >0.11.0"
+pillow = "*"
 protobuf = "<4.0.0"
 psutil = "*"
 sentencepiece = ">=0.2.0"
@@ -9869,4 +9892,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "2595e6ce531cf162f345aae71540e44f32c3580cea76cd0517fd386d1a120a2e"
+content-hash = "6fa34b9b1ad068897880ea46d9e6114bc2eca63d0767cd7f0300c04c9465f3d9"

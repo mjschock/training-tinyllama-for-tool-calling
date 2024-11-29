@@ -95,7 +95,8 @@ torch = "^2.5.1"
 torchvision = "^0.20.1"
 transformers = "^4.46.2"
 trl = "^0.12.0"
-unsloth = "^2024.11.5"
+unsloth = "2024.11.5"
+unsloth-zoo = "^2024.11.8"
 
 [tool.poetry.group.dev.dependencies]
 black = {extras = ["jupyter"], version = "^24.10.0"}
